@@ -114,6 +114,46 @@ Memory cleared
 
 ---
 
+## 6.5 Skills（技能系统）
+
+### 测试方法
+```
+skill_list
+skill_info name="code_review"
+skill_load name="code_review"
+帮我审查config.c的代码
+```
+
+### 测试结果
+- skill_list: 成功列出所有可用技能
+- skill_info: 成功获取技能简要信息
+- skill_load: 成功加载技能完整提示
+- 渐进式披露：用户请求代码审查时，Agent 自动应用 code_review 技能
+
+**输出示例：**
+```
+skill_list:
+以下是可用的技能列表：
+1. git_helper - Git操作助手，帮助管理代码版本和分支
+2. code_review - 审查代码质量问题，检查安全漏洞和代码风格
+
+skill_info:
+名称: code_review
+描述: 审查代码质量问题，检查安全漏洞和代码风格
+
+skill_load:
+=== Skill: code_review ===
+[完整技能提示内容]
+
+帮我审查config.c的代码:
+## 审查结果
+### 严重问题
+- 硬编码 API Key 泄露风险 (config.c:51)
+...
+```
+
+---
+
 ## 修复记录
 
 ### 1. memory.c - PATH_MAX 未定义

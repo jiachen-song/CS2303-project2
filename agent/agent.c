@@ -15,6 +15,8 @@
 #include "util.h"
 #include "tools/executor.h"
 #include "tools/eval_tools.h"
+#include "tools/skill_tools.h"
+#include "skills/skill.h"
 #include "context/context.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,6 +66,18 @@ Agent *agent_create(void) {
   EvaluationSuite *eval_suite = eval_suite_create("agent_eval");
   eval_tools_set_suite(eval_suite);
 
+  SkillStore *skill_store = skill_store_create(g_config.workdir);
+  skill_load_directory(skill_store, skill_store->skills_dir);
+  skill_tools_set_store(skill_store);
+
+  char *skills_intro = skill_build_intro(skill_store);
+  if (skills_intro) {
+    char *new_prompt = xasprintf("%s\n\nAvailable skills:\n%s", a->system_prompt, skills_intro);
+    free(a->system_prompt);
+    a->system_prompt = new_prompt;
+    free(skills_intro);
+  }
+
   return a;
 }
 
@@ -71,6 +85,7 @@ void agent_free(Agent *a) {
   if (!a)
     return;
   eval_tools_cleanup();
+  skill_tools_cleanup();
   free(a->system_prompt);
   free(a->last_reply);
   ctx_free(a->ctx);

@@ -45,6 +45,9 @@ extern ToolDef memory_clear_def;
 extern ToolDef session_save_def;
 extern ToolDef session_load_def;
 extern ToolDef session_clear_def;
+extern ToolDef skill_list_def;
+extern ToolDef skill_load_def;
+extern ToolDef skill_info_def;
 /* TODO(student, Phase A.3): declare your read/write/edit ToolDefs here. */
 
 static ToolDef *g_tools[MAX_REGISTERED_TOOLS];
@@ -71,6 +74,9 @@ void tools_init(void) {
     tool_register(&session_save_def);
     tool_register(&session_load_def);
     tool_register(&session_clear_def);
+    tool_register(&skill_list_def);
+    tool_register(&skill_load_def);
+    tool_register(&skill_info_def);
     /* TODO(student, Phase A.3): register read_file_def, write_file_def,
        edit_file_def here, in this exact order so that test output is
        deterministic. */
