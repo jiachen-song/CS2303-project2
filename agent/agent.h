@@ -1,6 +1,8 @@
 #ifndef AGENT_H
 #define AGENT_H
 
+#include "context/context.h"
+
 /*
  * Opaque agent handle. Early phases can keep only transient per-call state
  * here; Phase C will likely add persistent history for multi-turn dialogue.
@@ -17,5 +19,8 @@ void agent_free(Agent *a);
  * error (and writes a human-readable message via stderr).
  */
 const char *agent_chat(Agent *a, const char *user_input);
+
+/* Get agent's context for inspection (e.g., token usage). */
+Context *agent_ctx(Agent *a);
 
 #endif

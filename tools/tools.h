@@ -31,7 +31,7 @@ typedef struct {
     bool read_only;
 } ToolDef;
 
-#define MAX_REGISTERED_TOOLS 16
+#define MAX_REGISTERED_TOOLS 32
 
 void tools_init(void);
 void tool_register(ToolDef *def);

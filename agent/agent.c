@@ -71,6 +71,10 @@ void agent_free(Agent *a) {
   free(a);
 }
 
+Context *agent_ctx(Agent *a) {
+  return a->ctx;
+}
+
 const char *agent_chat(Agent *a, const char *user_input) {
   char *user_message = msg_user_json(user_input);
   if(!user_message){

@@ -33,6 +33,18 @@ extern ToolDef bash_def;
 extern ToolDef read_file_def;
 extern ToolDef write_file_def;
 extern ToolDef edit_file_def;
+extern ToolDef eval_start_def;
+extern ToolDef eval_end_def;
+extern ToolDef eval_report_def;
+extern ToolDef subagent_spawn_def;
+extern ToolDef subagent_result_def;
+extern ToolDef memory_write_def;
+extern ToolDef memory_read_def;
+extern ToolDef memory_list_def;
+extern ToolDef memory_clear_def;
+extern ToolDef session_save_def;
+extern ToolDef session_load_def;
+extern ToolDef session_clear_def;
 /* TODO(student, Phase A.3): declare your read/write/edit ToolDefs here. */
 
 static ToolDef *g_tools[MAX_REGISTERED_TOOLS];
@@ -47,6 +59,18 @@ void tools_init(void) {
     tool_register(&read_file_def);
     tool_register(&write_file_def);
     tool_register(&edit_file_def);
+    tool_register(&eval_start_def);
+    tool_register(&eval_end_def);
+    tool_register(&eval_report_def);
+    tool_register(&subagent_spawn_def);
+    tool_register(&subagent_result_def);
+    tool_register(&memory_write_def);
+    tool_register(&memory_read_def);
+    tool_register(&memory_list_def);
+    tool_register(&memory_clear_def);
+    tool_register(&session_save_def);
+    tool_register(&session_load_def);
+    tool_register(&session_clear_def);
     /* TODO(student, Phase A.3): register read_file_def, write_file_def,
        edit_file_def here, in this exact order so that test output is
        deterministic. */

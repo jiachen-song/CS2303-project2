@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "context/internal.h"
 #include "config.h"
 #include "util.h"

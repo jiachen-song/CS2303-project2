@@ -48,6 +48,10 @@ float ctx_budget_usage(const Context *ctx) {
   return (float)ctx_total_tokens(ctx) / (float)ctx->context_window;
 }
 
+int ctx_context_window(const Context *ctx) {
+  return ctx->context_window;
+}
+
 const MessageList *ctx_history(const Context *ctx) { return &ctx->history; }
 
 void ctx_replace_msg(Context *ctx, int index, char *new_json) {
@@ -82,13 +86,13 @@ int ctx_reclaim(Context *ctx, char *err, size_t err_cap) {
       continue;
 
     int before = ctx_total_tokens(ctx);
-    printf("[context] policy \"%s\" triggered at %.1f%% (%d tokens)\n", p->name,
+    fprintf(stderr, "[context] policy \"%s\" triggered at %.1f%% (%d tokens)\n", p->name,
            ctx_budget_usage(ctx) * 100.0f, before);
 
     if (p->apply(ctx, err, err_cap) != 0)
       return -1;
 
-    printf("[context] policy \"%s\" complete: %d -> %d tokens\n", p->name,
+    fprintf(stderr, "[context] policy \"%s\" complete: %d -> %d tokens\n", p->name,
            before, ctx_total_tokens(ctx));
   }
 

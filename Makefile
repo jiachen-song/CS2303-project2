@@ -31,9 +31,13 @@ AGENT_SRCS := $(sort $(wildcard agent/*.c))
 TOOL_SRCS  := $(sort $(wildcard tools/*.c))
 UI_SRCS    := $(sort $(wildcard ui/*.c))
 CTX_SRCS   := $(sort $(wildcard context/*.c))
+EVAL_SRCS := $(sort $(wildcard evaluation/*.c))
+MEMORY_SRCS := $(sort $(wildcard memory/*.c))
+SESSION_SRCS := $(sort $(wildcard session/*.c))
 
 CORE_SRCS  := main.c config.c message.c util.c http.c \
-              $(AGENT_SRCS) $(TOOL_SRCS) $(UI_SRCS) $(CTX_SRCS)
+              $(AGENT_SRCS) $(TOOL_SRCS) $(UI_SRCS) $(CTX_SRCS) \
+              $(EVAL_SRCS) $(MEMORY_SRCS) $(SESSION_SRCS)
 
 SRCS := $(CORE_SRCS) $(EXTRA_SRCS)
 

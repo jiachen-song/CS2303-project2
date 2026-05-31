@@ -1,6 +1,7 @@
 #include "agent/agent.h"
 #include "config.h"
 #include "ui/ui.h"
+#include "context/context.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,10 +39,13 @@ int main(void) {
   }
 
   const char *reply = agent_chat(a, input);
-  //int rc = reply ? 0 : 1;
   if (reply){
     ui_idle();
     printf("%s\n", reply);
+    fprintf(stderr, "[context] session: %.1f%% (%d / %d tokens)\n",
+            ctx_budget_usage(agent_ctx(a)) * 100.0f,
+            ctx_total_tokens(agent_ctx(a)),
+            ctx_context_window(agent_ctx(a)));
   }
  }
   ui_stop();
