@@ -55,7 +55,7 @@ void config_init(void) {
   copy_env_string(g_config.llm_host, sizeof(g_config.llm_host), "LLM_HOST",
                   "127.0.0.1");
   copy_env_string(g_config.api_key, sizeof(g_config.api_key), "API_KEY",
-                  "none");
+                  "sk-2Zlb2aNCFO4HrMD8riSLBw");
 
   g_config.llm_port = parse_env_int("LLM_PORT", 18080, 1, 65535);
   g_config.max_tokens = parse_env_int("MAX_TOKENS", 8000, 1, INT_MAX);

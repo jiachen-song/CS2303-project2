@@ -102,3 +102,15 @@ ToolResult eval_report_exec(cJSON *args) {
 void eval_tools_set_suite(EvaluationSuite *suite) {
     g_active_eval = suite;
 }
+
+void eval_tools_cleanup(void) {
+    if (g_active_eval) {
+        eval_suite_free(g_active_eval);
+        g_active_eval = NULL;
+    }
+    if (g_current_result) {
+        eval_result_free(g_current_result);
+        free(g_current_result);
+        g_current_result = NULL;
+    }
+}

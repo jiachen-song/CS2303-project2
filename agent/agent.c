@@ -14,6 +14,7 @@
 #include "tools/tools.h"
 #include "util.h"
 #include "tools/executor.h"
+#include "tools/eval_tools.h"
 #include "context/context.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,12 +60,17 @@ Agent *agent_create(void) {
   ctx_add_policy(a->ctx, &offload_policy);
   ctx_add_policy(a->ctx, &summary_policy);
   tools_init();
+
+  EvaluationSuite *eval_suite = eval_suite_create("agent_eval");
+  eval_tools_set_suite(eval_suite);
+
   return a;
 }
 
 void agent_free(Agent *a) {
   if (!a)
     return;
+  eval_tools_cleanup();
   free(a->system_prompt);
   free(a->last_reply);
   ctx_free(a->ctx);

@@ -11,6 +11,7 @@
 int main(void) {
   config_init();
   ui_init();
+  //tools_init();
   ui_start();
 
   ui_banner();
