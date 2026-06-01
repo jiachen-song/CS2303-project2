@@ -67,14 +67,20 @@ ToolResult session_load_exec(cJSON *args) {
 
     if (g_current_session) {
         session_free(g_current_session);
+        g_current_session = NULL;
     }
 
-    g_current_session = session_create(g_config.workdir, session_id_json->valuestring);
+    g_current_session = session_open(g_config.workdir, session_id_json->valuestring);
     if (!g_current_session) {
-        return (ToolResult){.ok = false, .output = xstrdup("Failed to create session")};
+        char *output = xasprintf("Failed to open session %s - file may not exist", session_id_json->valuestring);
+        return (ToolResult){.ok = false, .output = output};
     }
 
-    int msg_count = session_load(g_current_session);
+    session_load(g_current_session);
+    session_reopen_for_write(g_current_session);
+
+    int msg_count = session_get_message_count(g_current_session);
+
     char *output = xasprintf("Session loaded: %s (%d messages)",
                               session_id_json->valuestring, msg_count);
     return (ToolResult){.ok = true, .output = output};

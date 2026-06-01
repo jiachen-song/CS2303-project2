@@ -11,6 +11,7 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 struct Session {
     char *session_id;
@@ -48,7 +49,46 @@ Session *session_create(const char *workdir, const char *session_id) {
     }
 
     s->log_path = xasprintf("%s/%s.log", session_dir, session_id);
-    s->log_file = fopen(s->log_path, "a");
+
+    if (access(s->log_path, F_OK) == 0) {
+        s->log_file = fopen(s->log_path, "a");
+    } else {
+        s->log_file = fopen(s->log_path, "w");
+    }
+    if (!s->log_file) {
+        free(s->session_id);
+        free(s->workdir);
+        free(s->log_path);
+        free(s);
+        return NULL;
+    }
+
+    return s;
+}
+
+Session *session_open(const char *workdir, const char *session_id) {
+    if (!workdir || !session_id)
+        return NULL;
+
+    Session *s = calloc(1, sizeof(*s));
+    if (!s)
+        return NULL;
+
+    s->session_id = xstrdup(session_id);
+    s->workdir = xstrdup(workdir);
+
+    char session_dir[PATH_MAX];
+    snprintf(session_dir, sizeof(session_dir), "%s/.agent/sessions", workdir);
+    if (ensure_dir(session_dir) != 0) {
+        free(s->session_id);
+        free(s->workdir);
+        free(s);
+        return NULL;
+    }
+
+    s->log_path = xasprintf("%s/%s.log", session_dir, session_id);
+
+    s->log_file = fopen(s->log_path, "r");
     if (!s->log_file) {
         free(s->session_id);
         free(s->workdir);
@@ -125,10 +165,28 @@ int session_load(Session *s) {
     s->message_count = 0;
 
     while (fgets(line, sizeof(line), f)) {
-        s->message_count++;
+        if (strstr(line, "RAW: ") != NULL) {
+            s->message_count++;
+        }
     }
 
     fclose(f);
+    return 0;
+}
+
+int session_reopen_for_write(Session *s) {
+    if (!s || !s->log_path)
+        return -1;
+
+    if (s->log_file) {
+        fclose(s->log_file);
+        s->log_file = NULL;
+    }
+
+    s->log_file = fopen(s->log_path, "a");
+    if (!s->log_file)
+        return -1;
+
     return 0;
 }
 

@@ -1,10 +1,5 @@
 /*
  * agent.c — orchestration between user input, LLM turns, and tool execution.
- *
- * The skeleton below is sized for Phase A: one request in, one request out,
- * no persistent state to speak of. Phase B and Phase C will both require
- * you to revisit `struct Agent`, agent_create, and agent_free — treat what
- * is here as a starting point, not a contract.
  */
 #include "agent.h"
 #include "ui/ui.h"
@@ -16,6 +11,8 @@
 #include "tools/executor.h"
 #include "tools/eval_tools.h"
 #include "tools/skill_tools.h"
+#include "tools/session_tools.h"
+#include "session/session.h"
 #include "skills/skill.h"
 #include "context/context.h"
 #include <stdio.h>
@@ -27,7 +24,7 @@ static const char AGENT_SYSTEM_TEMPLATE[] =
     "Use the provided tools when you need to run shell commands.\n"
     "Return a short, final text reply when the task is done.";
 
-    static void llm_response_free(LLMResponse *r) {
+static void llm_response_free(LLMResponse *r) {
   if (!r)
     return;
   free(r->content);
@@ -65,6 +62,7 @@ Agent *agent_create(void) {
 
   EvaluationSuite *eval_suite = eval_suite_create("agent_eval");
   eval_tools_set_suite(eval_suite);
+  eval_tools_set_ctx(a->ctx);
 
   SkillStore *skill_store = skill_store_create(g_config.workdir);
   skill_load_directory(skill_store, skill_store->skills_dir);
@@ -103,6 +101,11 @@ const char *agent_chat(Agent *a, const char *user_input) {
     return NULL;
   }
   ctx_push(a->ctx, user_message);
+
+  Session *session = session_tools_get_session();
+  if (session) {
+    session_save_raw(session, user_message);
+  }
 
   const int MAX_TURNS = 20;
 
@@ -158,6 +161,7 @@ const char *agent_chat(Agent *a, const char *user_input) {
       if(response.n_tool_calls>0 && response.tool_calls){
         ToolDef *def = tool_find(response.tool_calls[i].name);
         if(def){
+          eval_tools_inc_rounds();
           tool_result = def->exec(response.tool_calls[i].args);
         }
         else{
@@ -168,6 +172,16 @@ const char *agent_chat(Agent *a, const char *user_input) {
       }
 
       ui_tool_done(i,tool_result.ok,tool_result.output);
+
+      Session *session = session_tools_get_session();
+      if (session) {
+        char *json_msg = msg_user_json(tool_result.output);
+        if (json_msg) {
+          session_save_raw(session, json_msg);
+          free(json_msg);
+        }
+      }
+
       char *tool_message = msg_tool_json(response.tool_calls[i].id, tool_result.output);
       if(tool_message){
         ctx_push(a->ctx, tool_message);

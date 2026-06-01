@@ -1,5 +1,6 @@
 #include "tools/eval_tools.h"
 #include "evaluation/evaluation.h"
+#include "context/context.h"
 #include "util.h"
 
 #include <stdio.h>
@@ -10,6 +11,8 @@
 static EvaluationSuite *g_active_eval = NULL;
 static EvaluationResult *g_current_result = NULL;
 static clock_t g_start_time;
+static int g_tool_call_rounds = 0;
+static Context *g_current_ctx = NULL;
 
 ToolDef eval_start_def = {
     .name = "eval_start",
@@ -61,6 +64,7 @@ ToolResult eval_start_exec(cJSON *args) {
 
     eval_result_init(g_current_result, scenario_json->valuestring);
     g_start_time = clock();
+    g_tool_call_rounds = 0;
 
     char *output = xasprintf("Started evaluation: %s", scenario_json->valuestring);
     return (ToolResult){.ok = true, .output = output};
@@ -75,6 +79,11 @@ ToolResult eval_end_exec(cJSON *args) {
 
         clock_t end_time = clock();
         g_current_result->duration_seconds = (double)(end_time - g_start_time) / CLOCKS_PER_SEC;
+        g_current_result->tool_call_rounds = g_tool_call_rounds;
+
+        if (g_current_ctx) {
+            g_current_result->prompt_tokens = ctx_total_tokens(g_current_ctx);
+        }
 
         if (g_active_eval) {
             eval_suite_add(g_active_eval, g_current_result);
@@ -101,6 +110,14 @@ ToolResult eval_report_exec(cJSON *args) {
 
 void eval_tools_set_suite(EvaluationSuite *suite) {
     g_active_eval = suite;
+}
+
+void eval_tools_set_ctx(Context *ctx) {
+    g_current_ctx = ctx;
+}
+
+void eval_tools_inc_rounds(void) {
+    g_tool_call_rounds++;
 }
 
 void eval_tools_cleanup(void) {

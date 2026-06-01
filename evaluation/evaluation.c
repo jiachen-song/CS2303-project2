@@ -70,7 +70,6 @@ int eval_save_results(EvaluationSuite *suite, const char *filepath) {
 
     int total_success = 0;
     int total_prompt_tokens = 0;
-    int total_completion_tokens = 0;
 
     for (int i = 0; i < suite->len; i++) {
         EvaluationResult *r = &suite->results[i];
@@ -78,7 +77,6 @@ int eval_save_results(EvaluationSuite *suite, const char *filepath) {
         fprintf(f, "  Success: %s\n", r->success ? "true" : "false");
         fprintf(f, "  Tool Call Rounds: %d\n", r->tool_call_rounds);
         fprintf(f, "  Prompt Tokens: %d\n", r->prompt_tokens);
-        fprintf(f, "  Completion Tokens: %d\n", r->completion_tokens);
         fprintf(f, "  Duration: %.2f seconds\n", r->duration_seconds);
         if (r->error_message) {
             fprintf(f, "  Error: %s\n", r->error_message);
@@ -88,7 +86,6 @@ int eval_save_results(EvaluationSuite *suite, const char *filepath) {
         if (r->success)
             total_success++;
         total_prompt_tokens += r->prompt_tokens;
-        total_completion_tokens += r->completion_tokens;
     }
 
     fprintf(f, "Summary:\n");
@@ -96,7 +93,6 @@ int eval_save_results(EvaluationSuite *suite, const char *filepath) {
             suite->len > 0 ? (double)total_success / suite->len * 100.0 : 0.0,
             total_success, suite->len);
     fprintf(f, "  Total Prompt Tokens: %d\n", total_prompt_tokens);
-    fprintf(f, "  Total Completion Tokens: %d\n", total_completion_tokens);
 
     fclose(f);
     return 0;
@@ -114,7 +110,6 @@ void eval_print_summary(EvaluationSuite *suite) {
 
     int total_success = 0;
     int total_prompt_tokens = 0;
-    int total_completion_tokens = 0;
     int total_tool_calls = 0;
 
     for (int i = 0; i < suite->len; i++) {
@@ -122,7 +117,6 @@ void eval_print_summary(EvaluationSuite *suite) {
         if (r->success)
             total_success++;
         total_prompt_tokens += r->prompt_tokens;
-        total_completion_tokens += r->completion_tokens;
         total_tool_calls += r->tool_call_rounds;
     }
 
@@ -134,6 +128,5 @@ void eval_print_summary(EvaluationSuite *suite) {
     fprintf(stderr, "Avg Tool Calls: %.1f\n",
             suite->len > 0 ? (double)total_tool_calls / suite->len : 0.0);
     fprintf(stderr, "Total Prompt Tokens: %d\n", total_prompt_tokens);
-    fprintf(stderr, "Total Completion Tokens: %d\n", total_completion_tokens);
     fprintf(stderr, "==============================\n\n");
 }
