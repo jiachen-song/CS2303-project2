@@ -78,12 +78,36 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
       continue;
     }
 
-    char fpath[PATH_MAX];
+    /*
+     * C: slim placeholder — path + retrieval hint, no head/tail preview.
+     * With workdir ≈ 60B this lands around 110B instead of the old 220B,
+     * so more tool outputs become eligible for offload.
+     *
+     * A: we build the placeholder first so we can compare lengths before
+     * claiming an offload_id, opening a file, or doing any other side
+     * effect. If the placeholder would not shrink the message, we leave
+     * the message verbatim and never touch the filesystem.
+     */
+    char *placeholder = xasprintf(
+        "offloaded to %s/.agent/offload/%d.txt (use read_file to retrieve)",
+        g_config.workdir, ctx->next_offload_id);
+
+    if ((int)strlen(placeholder) >= content_len) {
+      fprintf(stderr,
+              "[context] offload: skipped index %d (%s, %d bytes) — placeholder not smaller\n",
+              i, role, content_len);
+      free(placeholder);
+      cJSON_Delete(m);
+      continue;
+    }
+
     int offload_id = ctx->next_offload_id++;
+    char fpath[PATH_MAX];
     snprintf(fpath, sizeof(fpath), "%s/%d.txt", offload_dir, offload_id);
 
     FILE *f = fopen(fpath, "w");
     if (!f) {
+      free(placeholder);
       cJSON_Delete(m);
       continue;
     }
@@ -92,18 +116,13 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
 
     const char *tool_call_id = json_str(m, "tool_call_id");
     char *saved_tool_call_id = (is_tool && tool_call_id) ? xstrdup(tool_call_id) : NULL;
-    char *saved_content = xstrdup(content);
     char *saved_role = xstrdup(role);
 
     cJSON_Delete(m);
 
-    char *preview = xasprintf(
-        "%.4sload_storage: save to %s/.agent/offload/%d.txt, "
-        "use read_file to retrieve. Content: \"%.100s...\"",
-        saved_content, g_config.workdir, offload_id, saved_content);
     cJSON *new_msg = cJSON_CreateObject();
     cJSON_AddStringToObject(new_msg, "role", saved_role);
-    cJSON_AddStringToObject(new_msg, "content", preview);
+    cJSON_AddStringToObject(new_msg, "content", placeholder);
     if (saved_tool_call_id) {
       cJSON_AddStringToObject(new_msg, "tool_call_id", saved_tool_call_id);
       free(saved_tool_call_id);
@@ -112,13 +131,12 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
     char *new_json = cJSON_PrintUnformatted(new_msg);
     ctx_replace_msg(ctx, i, new_json);
     cJSON_Delete(new_msg);
-    free(preview);
+    free(placeholder);
 
     fprintf(stderr,
             "[context] offload: %s message at index %d -> %s (%d bytes)\n",
             saved_role, i, fpath, content_len);
 
-    free(saved_content);
     free(saved_role);
   }
 
