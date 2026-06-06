@@ -286,6 +286,9 @@ void *render_thread(void *arg) {
 
       switch (ev.type) {
       case UI_EV_THINKING:
+        if (phase == RS_TOOLS) {
+          render_tools(ui, frame);
+        }
         if (phase == RS_IDLE) {
           esc(ESC_HIDE_CURSOR);
           fflush(stdout);

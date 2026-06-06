@@ -20,6 +20,16 @@ static int ensure_dir(const char *path) {
   return mkdir(path, 0755);
 }
 
+/*
+ * Per-role length threshold for offload eligibility. Tool outputs frequently
+ * contain the bulk of a long turn, so we offload them aggressively. User /
+ * assistant messages are kept verbatim more often — we only offload when they
+ * are clearly bloating the context (e.g. a large paste) so we do not break the
+ * flow of conversation.
+ */
+#define OFFLOAD_MIN_TOOL_LEN 50
+#define OFFLOAD_MIN_OTHER_LEN 500
+
 static int offload_apply(Context *ctx, char *err, size_t err_cap) {
   (void)err;
   (void)err_cap;
@@ -44,7 +54,7 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
       continue;
 
     const char *role = json_str(m, "role");
-    if (!role || strcmp(role, "tool") != 0) {
+    if (!role) {
       cJSON_Delete(m);
       continue;
     }
@@ -53,6 +63,8 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
     if (!content)
       content = "";
 
+    bool is_tool = (strcmp(role, "tool") == 0);
+
     if (strstr(content, "load_storage") != NULL ||
         strstr(content, "read_file") != NULL) {
       cJSON_Delete(m);
@@ -60,7 +72,8 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
     }
 
     int content_len = (int)strlen(content);
-    if (content_len < 200) {
+    int threshold = is_tool ? OFFLOAD_MIN_TOOL_LEN : OFFLOAD_MIN_OTHER_LEN;
+    if (content_len < threshold) {
       cJSON_Delete(m);
       continue;
     }
@@ -78,8 +91,9 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
     fclose(f);
 
     const char *tool_call_id = json_str(m, "tool_call_id");
-    char *saved_tool_call_id = tool_call_id ? xstrdup(tool_call_id) : NULL;
+    char *saved_tool_call_id = (is_tool && tool_call_id) ? xstrdup(tool_call_id) : NULL;
     char *saved_content = xstrdup(content);
+    char *saved_role = xstrdup(role);
 
     cJSON_Delete(m);
 
@@ -88,7 +102,7 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
         "use read_file to retrieve. Content: \"%.100s...\"",
         saved_content, g_config.workdir, offload_id, saved_content);
     cJSON *new_msg = cJSON_CreateObject();
-    cJSON_AddStringToObject(new_msg, "role", "tool");
+    cJSON_AddStringToObject(new_msg, "role", saved_role);
     cJSON_AddStringToObject(new_msg, "content", preview);
     if (saved_tool_call_id) {
       cJSON_AddStringToObject(new_msg, "tool_call_id", saved_tool_call_id);
@@ -99,7 +113,13 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
     ctx_replace_msg(ctx, i, new_json);
     cJSON_Delete(new_msg);
     free(preview);
+
+    fprintf(stderr,
+            "[context] offload: %s message at index %d -> %s (%d bytes)\n",
+            saved_role, i, fpath, content_len);
+
     free(saved_content);
+    free(saved_role);
   }
 
   return 0;

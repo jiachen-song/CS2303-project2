@@ -21,8 +21,32 @@
 
 static const char AGENT_SYSTEM_TEMPLATE[] =
     "You are a coding agent running in the CLI at %s.\n"
-    "Use the provided tools when you need to run shell commands.\n"
-    "Return a short, final text reply when the task is done.";
+    "Return a short, final text reply when the task is done.\n"
+    "\n"
+    "Tool usage guidance:\n"
+    "- `bash` runs shell commands. Prefer it for inspection, search, build, and test.\n"
+    "- `read_file` / `write_file` / `edit_file` operate on workspace-relative paths.\n"
+    "- `subagent_spawn` runs a self-contained subtask in an isolated context window\n"
+    "  and returns a structured result. Use it proactively for independent work\n"
+    "  so the main context stays lean. Triggers:\n"
+    "    * Large pasted input (e.g. a long log, dump, or code block) — let a\n"
+    "      subagent parse or summarize it instead of inflating the main context.\n"
+    "    * Bounded investigations that do not need the rest of the conversation\n"
+    "      (e.g. 'analyze module X', 'find usages of Y', 'run benchmark Z').\n"
+    "    * Multiple independent questions in one turn — spawn one subagent per\n"
+    "      question, then aggregate the results with `subagent_result`.\n"
+    "- `memory_write` / `memory_read` / `memory_list` persist facts across\n"
+    "  sessions in `.agent/memory.json`.\n"
+    "- `session_save` / `session_load` / `session_clear` persist the conversation\n"
+    "  log in `.agent/sessions/`.\n"
+    "\n"
+    "Offload awareness: tool results stored in `.agent/offload/N.txt` are not in\n"
+    "your context window. If you need the body of an offloaded result, call\n"
+    "`read_file` on the path shown in its placeholder.\n"
+    "\n"
+    "When the user pastes a long snippet (e.g. `[Pasted ~N lines]`), prefer\n"
+    "either `write_file` to save it to disk or `subagent_spawn` to process it —\n"
+    "do not echo the entire body back in your reply.";
 
 static void llm_response_free(LLMResponse *r) {
   if (!r)
@@ -151,10 +175,13 @@ const char *agent_chat(Agent *a, const char *user_input) {
     for(int i=0;i<response.n_tool_calls && i<MAX_TOOL_CALLS;i++){
       view[i].name = response.tool_calls[i].name;
       char *args_str = cJSON_PrintUnformatted(response.tool_calls[i].args);
-      view[i].args_display = args_str ? args_str : "";
-      free(args_str);
+      view[i].args_display = args_str;
     }
     ui_begin_tools(response.n_tool_calls, view);
+    for(int i=0;i<response.n_tool_calls && i<MAX_TOOL_CALLS;i++){
+      free((char *)view[i].args_display);
+      view[i].args_display = NULL;
+    }
 
     for(int i=0;i<response.n_tool_calls;i++){
       ToolResult tool_result = {0};
