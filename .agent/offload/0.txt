@@ -1,6 +1,0 @@
-总计 160
-drwxrwxr-x 2 sjc sjc   4096  6月  6 20:18 .
-drwxrwxr-x 4 sjc sjc   4096  6月  6 23:18 ..
--rw-rw-r-- 1 sjc sjc     78  6月  5 22:45 default.log
--rw-rw-r-- 1 sjc sjc 148636  6月  6 20:21 motis_session.log
--rw-rw-r-- 1 sjc sjc      0  6月  1 20:49 test_session.log
