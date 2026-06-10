@@ -1,0 +1,12 @@
+Evaluation Suite: agent_eval
+Total Scenarios: 1
+
+Scenario 1: 递归查找目录树中的所有.c文件
+  Success: true
+  Tool Call Rounds: 2
+  Prompt Tokens: 881
+  Duration: 0.01 seconds
+
+Summary:
+  Success Rate: 100.0% (1/1)
+  Total Prompt Tokens: 881

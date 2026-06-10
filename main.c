@@ -2,23 +2,98 @@
 #include "config.h"
 #include "ui/ui.h"
 #include "context/context.h"
+#include "tools/session_tools.h"
+#include "session/session.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "tools/tools.h"
 #define INPUT_BUF 4096
 
+static void handle_slash_command(const char *input) {
+    if (strcmp(input, "/new") == 0) {
+        char *id = session_tools_new_session(g_config.workdir);
+        if (!id) {
+            fprintf(stderr, "Failed to start a new session\n");
+            return;
+        }
+        printf("Started new session: %s\n", id);
+        printf("Log: %s/.agent/sessions/%s.log\n", g_config.workdir, id);
+        free(id);
+        return;
+    }
+
+    if (strcmp(input, "/sessions") == 0) {
+        int n = 0;
+        char **ids = session_tools_list(&n);
+        Session *cur = session_tools_get_session();
+        const char *cur_id = cur ? session_get_id(cur) : NULL;
+        if (!ids || n == 0) {
+            printf("No saved sessions.\n");
+        } else {
+            printf("Saved sessions (%d):\n", n);
+            for (int i = 0; i < n; i++) {
+                const char *marker = (cur_id && strcmp(cur_id, ids[i]) == 0) ? "*" : " ";
+                printf(" %s %s\n", marker, ids[i]);
+            }
+        }
+        session_list_free(ids);
+        return;
+    }
+
+    if (strncmp(input, "/load ", 6) == 0) {
+        const char *id = input + 6;
+        while (*id == ' ')
+            id++;
+        if (*id == '\0') {
+            printf("Usage: /load <session_id>\n");
+            return;
+        }
+        char *loaded = session_tools_load(g_config.workdir, id);
+        if (!loaded) {
+            printf("No such session: %s\n", id);
+            return;
+        }
+        Session *cur = session_tools_get_session();
+        printf("Loaded session: %s (%d messages)\n",
+               loaded, cur ? session_get_message_count(cur) : 0);
+        free(loaded);
+        return;
+    }
+
+    if (strcmp(input, "/session") == 0) {
+        Session *cur = session_tools_get_session();
+        if (!cur) {
+            printf("No active session.\n");
+        } else {
+            printf("Active session: %s\n", session_get_id(cur));
+            printf("Log: %s/.agent/sessions/%s.log\n",
+                   g_config.workdir, session_get_id(cur));
+            printf("Messages so far: %d\n", session_get_message_count(cur));
+        }
+        return;
+    }
+
+    if (strcmp(input, "/help") == 0) {
+        printf("Slash commands:\n");
+        printf("  /new             start a brand-new session (auto-id)\n");
+        printf("  /sessions        list saved session logs\n");
+        printf("  /session         show the active session\n");
+        printf("  /load <id>       switch to a saved session\n");
+        printf("  /help            show this help\n");
+        printf("Regular commands: exit | quit | q\n");
+        return;
+    }
+
+    printf("Unknown command: %s (try /help)\n", input);
+}
+
 int main(void) {
   config_init();
   ui_init();
-  //tools_init();
   ui_start();
-
   ui_banner();
-  //change
-  // fprintf(stderr,"BEFORE tools_init\n");
-  // tools_init();
-  // fprintf(stderr,"AFTER tools_init\n");
+
   Agent *a = agent_create();
   if (!a) {
     fprintf(stderr, "agent_create failed\n");
@@ -36,7 +111,12 @@ int main(void) {
     input[len - 1] = '\0';
 
   if(strcmp(input, "exit") == 0||strcmp(input, "quit") == 0||strcmp(input,"q")==0){
-    break; 
+    break;
+  }
+
+  if (input[0] == '/') {
+      handle_slash_command(input);
+      continue;
   }
 
   const char *reply = agent_chat(a, input);

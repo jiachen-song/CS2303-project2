@@ -16,6 +16,7 @@ typedef struct {
 typedef struct {
     char *scenario_name;
     int rounds;
+    int tool_calls;
     int prompt_tokens;
     int completion_tokens;
 } SubAgentMetrics;
@@ -26,6 +27,9 @@ void subagent_free(SubAgent *s);
 const char *subagent_execute(SubAgent *s, const char *task, SubAgentMetrics *metrics);
 
 void subagent_set_memory(SubAgent *s, cJSON *memory);
+
+/* Optional path for an independent debug log under .agent/subagents/. */
+void subagent_set_log_path(SubAgent *s, const char *log_path);
 
 char *subagent_format_result(const char *task, const char *result, bool success);
 

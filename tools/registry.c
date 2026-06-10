@@ -45,6 +45,8 @@ extern ToolDef memory_clear_def;
 extern ToolDef session_save_def;
 extern ToolDef session_load_def;
 extern ToolDef session_clear_def;
+extern ToolDef session_list_def;
+extern ToolDef session_new_def;
 extern ToolDef skill_list_def;
 extern ToolDef skill_load_def;
 extern ToolDef skill_info_def;
@@ -74,6 +76,8 @@ void tools_init(void) {
     tool_register(&session_save_def);
     tool_register(&session_load_def);
     tool_register(&session_clear_def);
+    tool_register(&session_list_def);
+    tool_register(&session_new_def);
     tool_register(&skill_list_def);
     tool_register(&skill_load_def);
     tool_register(&skill_info_def);

@@ -53,11 +53,14 @@ void config_init(void) {
   copy_env_string(g_config.model, sizeof(g_config.model), "MODEL_ID",
                   "qwen");
   copy_env_string(g_config.llm_host, sizeof(g_config.llm_host), "LLM_HOST",
-                  "127.0.0.1");
+                  "58.246.177.174");
+  // copy_env_string(g_config.llm_host, sizeof(g_config.llm_host), "LLM_HOST",
+  //                 "127.0.0.1");
   copy_env_string(g_config.api_key, sizeof(g_config.api_key), "API_KEY",
                   "none");
 
-  g_config.llm_port = parse_env_int("LLM_PORT", 18080, 1, 65535);
+  // g_config.llm_port = parse_env_int("LLM_PORT", 18080, 1, 65535);
+  g_config.llm_port = parse_env_int("LLM_PORT", 51945, 1, 65535);
   g_config.max_tokens = parse_env_int("MAX_TOKENS", 8000, 1, INT_MAX);
   g_config.context_window = parse_env_int("CONTEXT_WINDOW", 100000, 1, INT_MAX);
   g_config.offload_threshold =

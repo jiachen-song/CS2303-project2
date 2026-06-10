@@ -4,6 +4,7 @@
 #include "util.h"
 #include "message.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
@@ -239,4 +240,93 @@ int session_clear(Session *s) {
 
     s->message_count = 0;
     return 0;
+}
+
+char *session_generate_id(void) {
+    time_t now = time(NULL);
+    struct tm tm_buf;
+    localtime_r(&now, &tm_buf);
+    char buf[64];
+    strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tm_buf);
+    return xstrdup(buf);
+}
+
+/* Like session_generate_id but appends a numeric suffix when the same
+ * timestamp already exists on disk, ensuring a fresh log file. Caller
+ * frees. */
+char *session_generate_unique_id(const char *workdir) {
+    char base[64];
+    time_t now = time(NULL);
+    struct tm tm_buf;
+    localtime_r(&now, &tm_buf);
+    strftime(base, sizeof(base), "%Y%m%d-%H%M%S", &tm_buf);
+
+    char path[PATH_MAX];
+    if (!workdir)
+        workdir = ".";
+
+    for (unsigned int seq = 0; ; seq++) {
+        char id[80];
+        if (seq == 0)
+            snprintf(id, sizeof(id), "%s", base);
+        else
+            snprintf(id, sizeof(id), "%s-%u", base, seq);
+        snprintf(path, sizeof(path), "%s/.agent/sessions/%s.log", workdir, id);
+        if (access(path, F_OK) != 0)
+            return xstrdup(id);
+    }
+}
+
+char **session_list(const char *workdir, int *out_count) {
+    if (out_count)
+        *out_count = 0;
+    if (!workdir)
+        return NULL;
+
+    char session_dir[PATH_MAX];
+    snprintf(session_dir, sizeof(session_dir), "%s/.agent/sessions", workdir);
+
+    DIR *d = opendir(session_dir);
+    if (!d)
+        return NULL;
+
+    int cap = 0;
+    int len = 0;
+    char **ids = NULL;
+
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.')
+            continue;
+        const char *dot = strrchr(ent->d_name, '.');
+        if (!dot || strcmp(dot, ".log") != 0)
+            continue;
+
+        if (len >= cap) {
+            cap = cap ? cap * 2 : 8;
+            ids = xrealloc(ids, (size_t)(cap + 1) * sizeof(char *));
+        }
+
+        size_t namelen = (size_t)(dot - ent->d_name);
+        char *id = xmalloc(namelen + 1);
+        memcpy(id, ent->d_name, namelen);
+        id[namelen] = '\0';
+        ids[len++] = id;
+    }
+    closedir(d);
+
+    if (ids) {
+        ids[len] = NULL;
+    }
+    if (out_count)
+        *out_count = len;
+    return ids;
+}
+
+void session_list_free(char **ids) {
+    if (!ids)
+        return;
+    for (int i = 0; ids[i]; i++)
+        free(ids[i]);
+    free(ids);
 }

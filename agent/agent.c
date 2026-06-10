@@ -2,6 +2,7 @@
  * agent.c — orchestration between user input, LLM turns, and tool execution.
  */
 #include "agent.h"
+#include "agent/agent_run.h"
 #include "ui/ui.h"
 #include "config.h"
 #include "llm_client.h"
@@ -20,47 +21,53 @@
 #include <string.h>
 
 static const char AGENT_SYSTEM_TEMPLATE[] =
-    "You are a coding agent running in the CLI at %s.\n"
-    "Return a short, final text reply when the task is done.\n"
+    "【系统级硬约束 / 必须严格遵守】\n"
+    "工作目录: %s\n"
     "\n"
-    "Tool usage guidance:\n"
-    "- `bash` runs shell commands. Prefer it for inspection, search, build, and test.\n"
-    "- `read_file` / `write_file` / `edit_file` operate on workspace-relative paths.\n"
-    "- `subagent_spawn` runs a self-contained subtask in an isolated context window\n"
-    "  and returns a structured result. Use it proactively for independent work\n"
-    "  so the main context stays lean. Triggers:\n"
-    "    * Large pasted input (e.g. a long log, dump, or code block) — let a\n"
-    "      subagent parse or summarize it instead of inflating the main context.\n"
-    "    * Bounded investigations that do not need the rest of the conversation\n"
-    "      (e.g. 'analyze module X', 'find usages of Y', 'run benchmark Z').\n"
-    "    * Multiple independent questions in one turn — spawn one subagent per\n"
-    "      question, then aggregate the results with `subagent_result`.\n"
-    "- `memory_write` / `memory_read` / `memory_list` persist facts across\n"
-    "  sessions in `.agent/memory.json`.\n"
-    "- `session_save` / `session_load` / `session_clear` persist the conversation\n"
-    "  log in `.agent/sessions/`.\n"
+    "RULE 1（最高优先级，覆盖一切其他指引）：\n"
+    "  当用户消息包含 2 个或以上互相独立的子任务时，你的第一反应必须是\n"
+    "  对每个子任务各调用一次 `subagent_spawn`，而不是自己调用 `bash`。\n"
+    "  \"互相独立\" 的判断标准：子任务之间不共享变量、不依赖前一步的输出。\n"
+    "  典型例子——用户输入形如：\n"
+    "    1) 数 X 数量\n"
+    "    2) 找 Y 中最大的\n"
+    "    3) 列出 Z\n"
+    "  这是 3 个独立子任务 → 必须调 3 次 subagent_spawn。\n"
+    "  然后用 subagent_result(spawn_id=...) 取回每个子代理的结论，\n"
+    "  汇总后回复用户。**禁止**在主循环里用 bash 串行执行这些独立任务。\n"
     "\n"
-    "Offload awareness: tool results stored in `.agent/offload/N.txt` are not in\n"
-    "your context window. If you need the body of an offloaded result, call\n"
-    "`read_file` on the path shown in its placeholder.\n"
+    "RULE 2（bash 的合法使用场景）：\n"
+    "  - 单次原子操作（例如 \"git status\"、\"ls -la\" 这类无依赖的命令）\n"
+    "  - 后续步骤明确依赖前一步输出（例如 read→edit 的链路）\n"
     "\n"
-    "When the user pastes a long snippet (e.g. `[Pasted ~N lines]`), prefer\n"
-    "either `write_file` to save it to disk or `subagent_spawn` to process it —\n"
-    "do not echo the entire body back in your reply.";
+    "RULE 3（其他工具）：\n"
+    "  - read_file / write_file / edit_file：相对路径的文件读写改。\n"
+    "  - memory_*: 跨会话持久化，写到 .agent/memory.json。\n"
+    "  - session_*: 会话日志存到 .agent/sessions/，已自动开启，\n"
+    "    无需调用 session_save 来记录消息。\n"
+    "\n"
+    "RULE 4：\n"
+    "  - offload 后的工具结果（.agent/offload/N.txt）不在你的上下文里，\n"
+    "    如需正文，调 read_file 读取占位符里的路径。\n"
+    "  - 不要把大段粘贴内容回显给用户，用 write_file 或 subagent_spawn 处理。\n"
+    "\n"
+    "完成任务后输出简短、最终的中文回复。\n"
+    "再次强调 RULE 1：多个独立子任务 → 多次 subagent_spawn → 多次 "
+    "subagent_result → 汇总回复。绝不要在主循环里 bash 串行执行。";
 
 static void llm_response_free(LLMResponse *r) {
-  if (!r)
-    return;
-  free(r->content);
-  free(r->raw_message);
-  if (r->tool_calls) {
-    for (int i = 0; i < r->n_tool_calls; i++) {
-      free(r->tool_calls[i].id);
-      free(r->tool_calls[i].name);
-      cJSON_Delete(r->tool_calls[i].args);
+    if (!r)
+        return;
+    free(r->content);
+    free(r->raw_message);
+    if (r->tool_calls) {
+        for (int i = 0; i < r->n_tool_calls; i++) {
+            free(r->tool_calls[i].id);
+            free(r->tool_calls[i].name);
+            cJSON_Delete(r->tool_calls[i].args);
+        }
+        free(r->tool_calls);
     }
-    free(r->tool_calls);
-  }
 }
 
 struct Agent {
@@ -100,6 +107,15 @@ Agent *agent_create(void) {
     free(skills_intro);
   }
 
+  char *auto_id = session_tools_auto_start(g_config.workdir);
+  if (auto_id) {
+    fprintf(stderr, "[session] auto-started: %s (log: %s/.agent/sessions/%s.log)\n",
+            auto_id, g_config.workdir, auto_id);
+    free(auto_id);
+  } else {
+    fprintf(stderr, "[session] auto-start failed; conversation will not be logged\n");
+  }
+
   return a;
 }
 
@@ -131,9 +147,17 @@ const char *agent_chat(Agent *a, const char *user_input) {
     session_save_raw(session, user_message);
   }
 
+  /* Drive the LLM through the shared turn loop. The loop itself records
+   * assistant + tool messages into the session log; we just need to render
+   * tool activity to the user. */
   const int MAX_TURNS = 20;
 
-  for(int turn=0;turn <MAX_TURNS;turn++){
+  /* We need to render tool calls the same way the original agent did. The
+   * shared loop does not know about the UI, so we re-implement the wrapper
+   * here on top of agent_run_turns by calling it round-by-round. Simpler:
+   * drive ctx_reclaim + llm_chat + tool execution inline so we keep UI. */
+
+  for(int turn=0; turn < MAX_TURNS; turn++){
     LLMResponse response={0};
     char err[256];
 
@@ -166,6 +190,7 @@ const char *agent_chat(Agent *a, const char *user_input) {
 
     if(response.raw_message){
       ctx_push(a->ctx, xstrdup(response.raw_message));
+      if (session) session_save_raw(session, response.raw_message);
       free(response.raw_message);
       response.raw_message = NULL;
     }
@@ -200,9 +225,8 @@ const char *agent_chat(Agent *a, const char *user_input) {
 
       ui_tool_done(i,tool_result.ok,tool_result.output);
 
-      Session *session = session_tools_get_session();
       if (session) {
-        char *json_msg = msg_user_json(tool_result.output);
+        char *json_msg = msg_tool_json(response.tool_calls[i].id, tool_result.output);
         if (json_msg) {
           session_save_raw(session, json_msg);
           free(json_msg);
