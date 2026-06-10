@@ -35,6 +35,16 @@ void ctx_push(Context *ctx, char *msg_json) {
   msg_list_push(&ctx->history, msg_json);
 }
 
+void ctx_reset(Context *ctx) {
+  if (!ctx)
+    return;
+  msg_list_free(&ctx->history);
+  /* msg_list_free already zeros items/len/cap. Reset the offload counter
+   * too so a freshly-loaded session doesn't overwrite the previous
+   * session's offload files. */
+  ctx->next_offload_id = 0;
+}
+
 int ctx_total_tokens(const Context *ctx) {
   int total = 0;
   for (int i = 0; i < ctx->history.len; i++)

@@ -4,6 +4,7 @@
 #include "util.h"
 #include "message.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
@@ -29,8 +30,28 @@ static int ensure_dir(const char *path) {
     return mkdir(path, 0755);
 }
 
+/*
+ * session_id whitelist: only alnum, '-', '_', '.'. Keeps the user (and an
+ * LLM that may have been prompt-injected) from passing path-traversal
+ * payloads like "../../etc/passwd" that would escape the sessions dir.
+ * Length cap at 128 to keep paths bounded.
+ */
+static bool is_valid_session_id(const char *id) {
+    if (!id || !*id)
+        return false;
+    size_t len = strlen(id);
+    if (len > 128)
+        return false;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)id[i];
+        if (!(isalnum(c) || c == '-' || c == '_' || c == '.'))
+            return false;
+    }
+    return true;
+}
+
 Session *session_create(const char *workdir, const char *session_id) {
-    if (!workdir || !session_id)
+    if (!workdir || !is_valid_session_id(session_id))
         return NULL;
 
     Session *s = calloc(1, sizeof(*s));
@@ -68,7 +89,7 @@ Session *session_create(const char *workdir, const char *session_id) {
 }
 
 Session *session_open(const char *workdir, const char *session_id) {
-    if (!workdir || !session_id)
+    if (!workdir || !is_valid_session_id(session_id))
         return NULL;
 
     Session *s = calloc(1, sizeof(*s));
@@ -120,25 +141,8 @@ int session_get_message_count(Session *s) {
     return s ? s->message_count : 0;
 }
 
-int session_save_message(Session *s, const char *role, const char *content) {
-    if (!s || !role || !content)
-        return -1;
-
-    time_t now = time(NULL);
-    char timestamp[64];
-    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
-
-    int rc = fprintf(s->log_file, "[%s] %s: %s\n", timestamp, role, content);
-    if (rc < 0)
-        return -1;
-
-    fflush(s->log_file);
-    s->message_count++;
-    return 0;
-}
-
 int session_save_raw(Session *s, const char *source_tag, const char *json_message) {
-    if (!s || !json_message)
+    if (!s || !s->log_file || !json_message)
         return -1;
 
     time_t now = time(NULL);
@@ -244,15 +248,6 @@ int session_clear(Session *s) {
 
     s->message_count = 0;
     return 0;
-}
-
-char *session_generate_id(void) {
-    time_t now = time(NULL);
-    struct tm tm_buf;
-    localtime_r(&now, &tm_buf);
-    char buf[64];
-    strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tm_buf);
-    return xstrdup(buf);
 }
 
 /* Like session_generate_id but appends a numeric suffix when the same

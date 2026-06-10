@@ -35,6 +35,14 @@ extern ContextPolicy summary_policy;
 void ctx_push(Context *ctx, char *msg_json); /* takes ownership */
 
 /*
+ * Clear the message history and reset offload counter. Policies and
+ * context_window are kept (they're reusable across session switches).
+ * Used when the user /load's a different session or /clear's the current
+ * one, so the in-memory history matches the (new) log file.
+ */
+void ctx_reset(Context *ctx);
+
+/*
  * Reclaim context budget: run each triggered policy once. No-op when usage
  * is within thresholds.
  * Returns 0 on success, -1 on failure (err is filled).

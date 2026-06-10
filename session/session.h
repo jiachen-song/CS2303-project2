@@ -10,8 +10,6 @@ Session *session_create(const char *workdir, const char *session_id);
 Session *session_open(const char *workdir, const char *session_id);
 void session_free(Session *s);
 
-int session_save_message(Session *s, const char *role, const char *content);
-
 /* Append a raw JSON message to the session log. If `source_tag` is non-NULL
  * the line is prefixed with `[source_tag]` so callers can later distinguish
  * (for example) subagent messages from the main agent's. Pass NULL for the
@@ -26,9 +24,6 @@ const char *session_get_id(Session *s);
 int session_get_message_count(Session *s);
 
 int session_clear(Session *s);
-
-/* Generate a unique session id like "20260610-132500" (caller frees). */
-char *session_generate_id(void);
 
 /* Like session_generate_id but ensures the id does not collide with an
  * existing log file under <workdir>/.agent/sessions/. */

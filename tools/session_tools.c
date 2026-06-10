@@ -160,7 +160,13 @@ ToolResult session_load_exec(cJSON *args) {
     }
 
     session_load(g_current_session);
-    session_reopen_for_write(g_current_session);
+    if (session_reopen_for_write(g_current_session) != 0) {
+        session_free(g_current_session);
+        g_current_session = NULL;
+        return (ToolResult){.ok = false,
+                            .output = xasprintf("Failed to reopen session %s for write",
+                                                session_id_json->valuestring)};
+    }
 
     int msg_count = session_get_message_count(g_current_session);
 
@@ -228,6 +234,13 @@ ToolResult session_new_exec(cJSON *args) {
 
 Session *session_tools_get_session(void) {
     return g_current_session;
+}
+
+void session_tools_set_session(Session *s) {
+    if (g_current_session) {
+        session_free(g_current_session);
+    }
+    g_current_session = s;
 }
 
 void session_tools_cleanup(void) {

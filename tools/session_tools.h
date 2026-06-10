@@ -34,4 +34,8 @@ char **session_tools_list(int *out_count);
 
 Session *session_tools_get_session(void);
 
+/* Replace the current session. Frees the old one if any. Takes ownership
+ * of the passed Session (NULL clears the current session). */
+void session_tools_set_session(Session *s);
+
 #endif

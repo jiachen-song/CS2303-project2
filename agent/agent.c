@@ -134,6 +134,63 @@ Context *agent_ctx(Agent *a) {
   return a->ctx;
 }
 
+int agent_load_session(Agent *a, const char *session_id) {
+  if (!a || !session_id || !*session_id)
+    return -1;
+
+  /* 1. Open a temporary Session to replay the log file. session_replay
+   *    opens its own file handle, so this Session is just a path carrier. */
+  Session *temp = session_open(g_config.workdir, session_id);
+  if (!temp)
+    return -1;
+
+  MessageList replayed;
+  msg_list_init(&replayed);
+  int n = session_replay(temp, &replayed);
+  session_free(temp);
+
+  if (n < 0) {
+    msg_list_free(&replayed);
+    return -1;
+  }
+
+  /* 2. Reset the agent's in-memory context, then push the replayed
+   *    messages in. Ownership of each message string transfers to
+   *    ctx->history. We zero len first so msg_list_free won't try to
+   *    free the items themselves, but keep the items pointer so the
+   *    array itself is freed. */
+  ctx_reset(a->ctx);
+  for (int i = 0; i < replayed.len; i++)
+    ctx_push(a->ctx, replayed.items[i]);
+  replayed.len = 0;
+  msg_list_free(&replayed);
+
+  /* 3. Open a new Session in append mode and make it the active one. */
+  Session *active = session_create(g_config.workdir, session_id);
+  if (!active)
+    return -1;
+  session_tools_set_session(active);
+
+  return n;
+}
+
+int agent_clear_session(Agent *a) {
+  if (!a)
+    return -1;
+
+  /* Clear the log file (or auto-start a fresh one if there is none). */
+  Session *cur = session_tools_get_session();
+  if (cur) {
+    session_clear(cur);
+  } else {
+    session_tools_auto_start(g_config.workdir);
+  }
+
+  /* Reset the in-memory context. */
+  ctx_reset(a->ctx);
+  return 0;
+}
+
 const char *agent_chat(Agent *a, const char *user_input) {
   char *user_message = msg_user_json(user_input);
   if(!user_message){

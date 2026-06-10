@@ -10,7 +10,7 @@
 #include "tools/tools.h"
 #define INPUT_BUF 4096
 
-static void handle_slash_command(const char *input) {
+static void handle_slash_command(Agent *a, const char *input) {
     if (strcmp(input, "/new") == 0) {
         char *id = session_tools_new_session(g_config.workdir);
         if (!id) {
@@ -42,23 +42,32 @@ static void handle_slash_command(const char *input) {
     }
 
     if (strncmp(input, "/load ", 6) == 0) {
-        const char *id = input + 6;
-        while (*id == ' ')
-            id++;
-        if (*id == '\0') {
-            printf("Usage: /load <session_id>\n");
-            return;
-        }
-        char *loaded = session_tools_load(g_config.workdir, id);
-        if (!loaded) {
-            printf("No such session: %s\n", id);
-            return;
-        }
-        Session *cur = session_tools_get_session();
-        printf("Loaded session: %s (%d messages)\n",
-               loaded, cur ? session_get_message_count(cur) : 0);
-        free(loaded);
+      const char *id = input + 6;
+      while (*id == ' ')
+        id++;
+      if (*id == '\0') {
+        printf("Usage: /load <session_id>\n");
         return;
+      }
+      int n = agent_load_session(a, id);
+      if (n < 0) {
+        printf("No such session: %s\n", id);
+        return;
+      }
+      printf("Loaded session: %s (%d messages replayed into context)\n",
+             id, n);
+      return;
+    }
+
+    if (strcmp(input, "/clear") == 0) {
+      if (agent_clear_session(a) != 0) {
+        printf("Failed to clear session\n");
+        return;
+      }
+      Session *cur = session_tools_get_session();
+      printf("Session cleared: %s\n",
+             cur ? session_get_id(cur) : "(no active session)");
+      return;
     }
 
     if (strcmp(input, "/session") == 0) {
@@ -75,14 +84,15 @@ static void handle_slash_command(const char *input) {
     }
 
     if (strcmp(input, "/help") == 0) {
-        printf("Slash commands:\n");
-        printf("  /new             start a brand-new session (auto-id)\n");
-        printf("  /sessions        list saved session logs\n");
-        printf("  /session         show the active session\n");
-        printf("  /load <id>       switch to a saved session\n");
-        printf("  /help            show this help\n");
-        printf("Regular commands: exit | quit | q\n");
-        return;
+      printf("Slash commands:\n");
+      printf("  /new             start a brand-new session (auto-id)\n");
+      printf("  /sessions        list saved session logs\n");
+      printf("  /session         show the active session\n");
+      printf("  /load <id>       switch to a saved session (replay log into context)\n");
+      printf("  /clear           clear the current session's log and reset context\n");
+      printf("  /help            show this help\n");
+      printf("Regular commands: exit | quit | q\n");
+      return;
     }
 
     printf("Unknown command: %s (try /help)\n", input);
@@ -115,7 +125,7 @@ int main(void) {
   }
 
   if (input[0] == '/') {
-      handle_slash_command(input);
+      handle_slash_command(a, input);
       continue;
   }
 

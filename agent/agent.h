@@ -23,4 +23,20 @@ const char *agent_chat(Agent *a, const char *user_input);
 /* Get agent's context for inspection (e.g., token usage). */
 Context *agent_ctx(Agent *a);
 
+/*
+ * Switch the agent to a previously-saved session: replay the session's
+ * log file into the agent's in-memory context, and make that session
+ * the active one for future writes. The current context is reset.
+ * Returns the number of messages replayed on success, -1 on error
+ * (e.g. session_id invalid or log file not found).
+ */
+int agent_load_session(Agent *a, const char *session_id);
+
+/*
+ * Clear the current session's log file and reset the agent's context.
+ * The session id is kept (so subsequent messages continue to append
+ * to the same log). Returns 0 on success, -1 on error.
+ */
+int agent_clear_session(Agent *a);
+
 #endif
