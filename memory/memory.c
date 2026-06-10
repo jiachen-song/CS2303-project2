@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,8 +30,11 @@ static int ensure_dir(const char *path) {
 
 static char *timestamp_str(void) {
     time_t now = time(NULL);
-    char *ts = xasprintf("%ld", (long)now);
-    return ts;
+    struct tm tm_buf;
+    localtime_r(&now, &tm_buf);
+    char buf[32];
+    strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &tm_buf);
+    return xstrdup(buf);
 }
 
 MemoryStore *memory_create(const char *workdir) {
@@ -54,7 +58,8 @@ MemoryStore *memory_create(const char *workdir) {
     m->filepath = xasprintf("%s/%s", agent_dir, "memory.json");
     m->entries = cJSON_CreateObject();
 
-    memory_load(m);
+    if (memory_load(m) != 0)
+        fprintf(stderr, "[memory] WARNING: starting with empty memory\n");
 
     return m;
 }
@@ -72,19 +77,44 @@ int memory_save(MemoryStore *m) {
     if (!m || !m->filepath)
         return -1;
 
-    FILE *f = fopen(m->filepath, "w");
-    if (!f)
-        return -1;
-
-    char *json = cJSON_Print(m->entries);
-    if (!json) {
-        fclose(f);
+    /* Atomic write: serialize to a temp file then rename. A crash or
+     * partial write leaves the previous good memory.json untouched. */
+    char *tmp = xasprintf("%s.tmp", m->filepath);
+    FILE *f = fopen(tmp, "w");
+    if (!f) {
+        free(tmp);
         return -1;
     }
 
-    fprintf(f, "%s", json);
-    fclose(f);
+    char *json = cJSON_PrintUnformatted(m->entries);
+    if (!json) {
+        fclose(f);
+        remove(tmp);
+        free(tmp);
+        return -1;
+    }
+
+    if (fprintf(f, "%s", json) < 0) {
+        fclose(f);
+        remove(tmp);
+        free(tmp);
+        free(json);
+        return -1;
+    }
+    if (fclose(f) != 0) {
+        remove(tmp);
+        free(tmp);
+        free(json);
+        return -1;
+    }
     free(json);
+
+    if (rename(tmp, m->filepath) != 0) {
+        remove(tmp);
+        free(tmp);
+        return -1;
+    }
+    free(tmp);
     return 0;
 }
 
@@ -94,7 +124,7 @@ int memory_load(MemoryStore *m) {
 
     FILE *f = fopen(m->filepath, "r");
     if (!f)
-        return 0;
+        return 0;  /* first start, no file yet — that's fine */
 
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
@@ -105,25 +135,33 @@ int memory_load(MemoryStore *m) {
         return 0;
     }
 
-    char *content = malloc(len + 1);
-    if (!content) {
-        fclose(f);
-        return -1;
-    }
-
-    fread(content, 1, len, f);
-    content[len] = '\0';
+    char *content = xmalloc((size_t)len + 1);
+    size_t n = fread(content, 1, (size_t)len, f);
+    content[n] = '\0';
+    bool read_err = ferror(f);
     fclose(f);
 
-    cJSON_Delete(m->entries);
-    m->entries = cJSON_Parse(content);
-    free(content);
-
-    if (!m->entries) {
-        m->entries = cJSON_CreateObject();
+    if (read_err || n == 0) {
+        free(content);
         return -1;
     }
 
+    cJSON *parsed = cJSON_Parse(content);
+    free(content);
+
+    if (!parsed) {
+        /* Corrupt file: rename it to .broken for forensics and let the
+         * caller fall back to the empty entries already in m. */
+        char *bak = xasprintf("%s.broken", m->filepath);
+        rename(m->filepath, bak);
+        fprintf(stderr, "[memory] WARNING: %s corrupt, backed up to %s\n",
+                m->filepath, bak);
+        free(bak);
+        return -1;
+    }
+
+    cJSON_Delete(m->entries);
+    m->entries = parsed;
     return 0;
 }
 
@@ -168,23 +206,6 @@ cJSON *memory_get_all(MemoryStore *m) {
     return m ? cJSON_Duplicate(m->entries, true) : NULL;
 }
 
-int memory_update(MemoryStore *m, const char *key, const char *value) {
-    if (!m || !key)
-        return -1;
-
-    cJSON *entry = cJSON_GetObjectItem(m->entries, key);
-    if (!entry) {
-        return memory_add(m, key, value);
-    }
-
-    cJSON_ReplaceItemInObject(entry, "value", cJSON_CreateString(value ? value : ""));
-    char *ts = timestamp_str();
-    cJSON_ReplaceItemInObject(entry, "timestamp", cJSON_CreateString(ts));
-    free(ts);
-
-    return memory_save(m);
-}
-
 int memory_clear(MemoryStore *m) {
     if (!m)
         return -1;
@@ -192,10 +213,4 @@ int memory_clear(MemoryStore *m) {
     cJSON_Delete(m->entries);
     m->entries = cJSON_CreateObject();
     return memory_save(m);
-}
-
-int memory_add_entry(MemoryStore *m, MemoryEntry *entry) {
-    if (!m || !entry || !entry->key)
-        return -1;
-    return memory_add(m, entry->key, entry->value);
 }

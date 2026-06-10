@@ -18,16 +18,6 @@ int memory_remove(MemoryStore *m, const char *key);
 const char *memory_get(MemoryStore *m, const char *key);
 cJSON *memory_get_all(MemoryStore *m);
 
-int memory_update(MemoryStore *m, const char *key, const char *value);
-
 int memory_clear(MemoryStore *m);
-
-typedef struct {
-    char *key;
-    char *value;
-    char *timestamp;
-} MemoryEntry;
-
-int memory_add_entry(MemoryStore *m, MemoryEntry *entry);
 
 #endif
