@@ -25,10 +25,21 @@ static void llm_response_free(LLMResponse *r) {
     }
 }
 
-static int save_raw_to_session(Session *session, const char *json) {
+static int save_raw_to_session(Session *session, const char *source_tag,
+                               const char *json) {
     if (!session || !json)
         return 0;
-    return session_save_raw(session, json);
+    return session_save_raw(session, source_tag, json);
+}
+
+static bool is_forbidden(const char *const *forbidden, const char *name) {
+    if (!forbidden || !name)
+        return false;
+    for (int i = 0; forbidden[i]; i++) {
+        if (strcmp(forbidden[i], name) == 0)
+            return true;
+    }
+    return false;
 }
 
 char *agent_run_turns(Context *ctx,
@@ -36,6 +47,8 @@ char *agent_run_turns(Context *ctx,
                       const char *model,
                       int max_turns,
                       Session *session,
+                      const char *source_tag,
+                      const char *const *forbidden_tools,
                       AgentRunMetrics *metrics) {
     if (!ctx || !model)
         return NULL;
@@ -78,18 +91,27 @@ char *agent_run_turns(Context *ctx,
 
         if (response.raw_message) {
             ctx_push(ctx, xstrdup(response.raw_message));
-            save_raw_to_session(session, response.raw_message);
+            save_raw_to_session(session, source_tag, response.raw_message);
         }
 
         for (int i = 0; i < response.n_tool_calls; i++) {
             ToolResult tool_result = {0};
-            ToolDef *def = tool_find(response.tool_calls[i].name);
-            if (def) {
-                tool_result = def->exec(response.tool_calls[i].args);
-            } else {
+            const char *tool_name = response.tool_calls[i].name;
+
+            if (is_forbidden(forbidden_tools, tool_name)) {
                 tool_result.ok = false;
-                tool_result.output = xasprintf("unknown tool: %s",
-                                               response.tool_calls[i].name);
+                tool_result.output = xasprintf(
+                    "tool '%s' is not available in this context",
+                    tool_name ? tool_name : "(unnamed)");
+            } else {
+                ToolDef *def = tool_find(tool_name);
+                if (def) {
+                    tool_result = def->exec(response.tool_calls[i].args);
+                } else {
+                    tool_result.ok = false;
+                    tool_result.output = xasprintf("unknown tool: %s",
+                                                   tool_name ? tool_name : "(unnamed)");
+                }
             }
 
             if (metrics)
@@ -99,7 +121,7 @@ char *agent_run_turns(Context *ctx,
                                                tool_result.output);
             if (tool_message) {
                 ctx_push(ctx, tool_message);
-                save_raw_to_session(session, tool_message);
+                save_raw_to_session(session, source_tag, tool_message);
             }
             tool_result_free(&tool_result);
         }

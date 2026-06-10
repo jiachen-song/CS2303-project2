@@ -112,6 +112,10 @@ ToolResult subagent_spawn_exec(cJSON *args) {
     }
 
     cJSON *memory_json = cJSON_GetObjectItem(args, "memory");
+    if (memory_json && !cJSON_IsObject(memory_json)) {
+        return (ToolResult){.ok = false,
+                            .output = xstrdup("'memory' must be a JSON object")};
+    }
 
     char *id = make_spawn_id();
     SubAgent *subagent = subagent_create(g_config.workdir,
@@ -124,16 +128,12 @@ ToolResult subagent_spawn_exec(cJSON *args) {
     if (memory_json)
         subagent_set_memory(subagent, memory_json);
 
-    /* Debug log under .agent/subagents/<id>.log */
-    char *log_path = xasprintf("subagents/%s", id);
-    subagent_set_log_path(subagent, log_path);
-    free(log_path);
-
     SubAgentMetrics metrics = {0};
-    const char *result = subagent_execute(subagent, task_json->valuestring,
-                                          &metrics);
+    char *result = subagent_execute(subagent, task_json->valuestring, id,
+                                    &metrics);
 
     record_result(id, task_json->valuestring, result, &metrics);
+    free(result);
 
     char *output = xasprintf("spawn_id=%s (%d rounds, %d tool_calls, %d prompt_tokens)",
                              id, metrics.rounds, metrics.tool_calls,

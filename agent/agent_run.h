@@ -27,11 +27,21 @@ typedef struct {
     int completion_tokens; /* estimated; real accounting would need API usage */
 } AgentRunMetrics;
 
+/*
+ * Run the LLM turn loop. `source_tag`, if non-NULL, is passed through to
+ * session_save_raw so the caller can mark the source of each message
+ * (e.g. "subagent:sa-1"). `forbidden_tools`, if non-NULL, is a NULL-
+ * terminated array of tool names that the loop will refuse to execute —
+ * any call to a forbidden tool is short-circuited with an error message.
+ * Pass both as NULL for the main agent.
+ */
 char *agent_run_turns(Context *ctx,
                       const char *system_prompt,
                       const char *model,
                       int max_turns,
                       Session *session,
+                      const char *source_tag,
+                      const char *const *forbidden_tools,
                       AgentRunMetrics *metrics);
 
 #endif

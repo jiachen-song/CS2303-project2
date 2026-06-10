@@ -137,7 +137,7 @@ int session_save_message(Session *s, const char *role, const char *content) {
     return 0;
 }
 
-int session_save_raw(Session *s, const char *json_message) {
+int session_save_raw(Session *s, const char *source_tag, const char *json_message) {
     if (!s || !json_message)
         return -1;
 
@@ -145,7 +145,11 @@ int session_save_raw(Session *s, const char *json_message) {
     char timestamp[64];
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
 
-    int rc = fprintf(s->log_file, "[%s] RAW: %s\n", timestamp, json_message);
+    int rc;
+    if (source_tag && *source_tag)
+        rc = fprintf(s->log_file, "[%s] [%s] RAW: %s\n", timestamp, source_tag, json_message);
+    else
+        rc = fprintf(s->log_file, "[%s] RAW: %s\n", timestamp, json_message);
     if (rc < 0)
         return -1;
 

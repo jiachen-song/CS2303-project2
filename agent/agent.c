@@ -144,7 +144,7 @@ const char *agent_chat(Agent *a, const char *user_input) {
 
   Session *session = session_tools_get_session();
   if (session) {
-    session_save_raw(session, user_message);
+    session_save_raw(session, NULL, user_message);
   }
 
   /* Drive the LLM through the shared turn loop. The loop itself records
@@ -190,7 +190,7 @@ const char *agent_chat(Agent *a, const char *user_input) {
 
     if(response.raw_message){
       ctx_push(a->ctx, xstrdup(response.raw_message));
-      if (session) session_save_raw(session, response.raw_message);
+      if (session) session_save_raw(session, NULL, response.raw_message);
       free(response.raw_message);
       response.raw_message = NULL;
     }
@@ -228,7 +228,7 @@ const char *agent_chat(Agent *a, const char *user_input) {
       if (session) {
         char *json_msg = msg_tool_json(response.tool_calls[i].id, tool_result.output);
         if (json_msg) {
-          session_save_raw(session, json_msg);
+          session_save_raw(session, NULL, json_msg);
           free(json_msg);
         }
       }

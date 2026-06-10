@@ -11,7 +11,12 @@ Session *session_open(const char *workdir, const char *session_id);
 void session_free(Session *s);
 
 int session_save_message(Session *s, const char *role, const char *content);
-int session_save_raw(Session *s, const char *json_message);
+
+/* Append a raw JSON message to the session log. If `source_tag` is non-NULL
+ * the line is prefixed with `[source_tag]` so callers can later distinguish
+ * (for example) subagent messages from the main agent's. Pass NULL for the
+ * main agent. */
+int session_save_raw(Session *s, const char *source_tag, const char *json_message);
 
 int session_load(Session *s);
 int session_replay(Session *s, MessageList *out_messages);

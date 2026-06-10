@@ -19,7 +19,11 @@ struct SubAgent {
     Context *ctx;
     char *system_prompt;   /* base system prompt (re-used across executes) */
     cJSON *memory;
-    char *log_path;         /* optional independent subagent log id */
+};
+
+static const char *const SUBAGENT_FORBIDDEN_TOOLS[] = {
+    "subagent_spawn",
+    NULL,
 };
 
 static const char SUBAGENT_BASE_PROMPT[] =
@@ -30,16 +34,16 @@ static const char SUBAGENT_BASE_PROMPT[] =
     "Working directory: %s\n"
     "\n"
     "You have the same tools as the main agent (bash, read_file, write_file,\n"
-    "edit_file, etc.). Use them to complete the task. When you are done,\n"
-    "reply with a short, structured summary in plain text — do not call any\n"
-    "more tools. The main agent will read your final reply via\n"
-    "subagent_result.\n"
+    "edit_file, etc.) EXCEPT `subagent_spawn` — that tool is not available\n"
+    "to you, do not try to call it. Use the other tools to complete the task.\n"
+    "When you are done, reply with a short, structured summary in plain text\n"
+    "— do not call any more tools. The main agent will read your final\n"
+    "reply via subagent_result.\n"
     "\n"
     "Important:\n"
     "- Do not try to talk to the user; your final text is the deliverable.\n"
-    "- Do not spawn further sub-agents.\n"
-    "- Keep the reply concise; the main agent will integrate it into its own\n"
-    "  answer.";
+    "- Keep the reply concise; the main agent will integrate it into its\n"
+    "  own answer.";
 
 SubAgent *subagent_create(const char *workdir, int context_window) {
     SubAgent *s = calloc(1, sizeof(*s));
@@ -67,7 +71,6 @@ void subagent_free(SubAgent *s) {
         return;
     free(s->workdir);
     free(s->system_prompt);
-    free(s->log_path);
     ctx_free(s->ctx);
     cJSON_Delete(s->memory);
     free(s);
@@ -77,11 +80,6 @@ void subagent_set_memory(SubAgent *s, cJSON *memory) {
     if (s->memory)
         cJSON_Delete(s->memory);
     s->memory = memory ? cJSON_Duplicate(memory, true) : NULL;
-}
-
-void subagent_set_log_path(SubAgent *s, const char *log_path) {
-    free(s->log_path);
-    s->log_path = log_path ? xstrdup(log_path) : NULL;
 }
 
 static char *build_task_prompt(SubAgent *s, const char *task) {
@@ -102,12 +100,14 @@ static char *build_task_prompt(SubAgent *s, const char *task) {
         base, task);
 }
 
-const char *subagent_execute(SubAgent *s, const char *task, SubAgentMetrics *metrics) {
+char *subagent_execute(SubAgent *s, const char *task, const char *id,
+                       SubAgentMetrics *metrics) {
     if (!s || !task)
         return NULL;
 
     /* Sub-agent's per-turn messages are appended to the active main session
-     * log so the whole conversation is replayable from one place. */
+     * log, tagged with the subagent's spawn id so the parent can later
+     * distinguish its messages from the main agent's. */
     Session *main_session = session_tools_get_session();
 
     char *full_prompt = build_task_prompt(s, task);
@@ -115,14 +115,28 @@ const char *subagent_execute(SubAgent *s, const char *task, SubAgentMetrics *met
         return NULL;
 
     char *user_msg = msg_user_json(task);
-    if (user_msg)
-        ctx_push(s->ctx, user_msg);
+    if (!user_msg) {
+        free(full_prompt);
+        return NULL;
+    }
+    ctx_push(s->ctx, user_msg);
+
+    char *source_tag = NULL;
+    if (id && *id) {
+        const char *prefix = "subagent:";
+        size_t len = strlen(prefix) + strlen(id) + 1;
+        source_tag = xmalloc(len);
+        snprintf(source_tag, len, "%s%s", prefix, id);
+    }
 
     AgentRunMetrics run_metrics = {0};
     char *result = agent_run_turns(s->ctx, full_prompt, g_config.model,
                                    /*max_turns*/ 8, main_session,
+                                   source_tag,
+                                   SUBAGENT_FORBIDDEN_TOOLS,
                                    &run_metrics);
     free(full_prompt);
+    free(source_tag);
 
     if (metrics) {
         metrics->rounds = run_metrics.rounds;
@@ -131,15 +145,4 @@ const char *subagent_execute(SubAgent *s, const char *task, SubAgentMetrics *met
         metrics->completion_tokens = run_metrics.completion_tokens;
     }
     return result;
-}
-
-char *subagent_format_result(const char *task, const char *result, bool success) {
-    cJSON *obj = cJSON_CreateObject();
-    cJSON_AddStringToObject(obj, "task", task ? task : "");
-    cJSON_AddStringToObject(obj, "result", result ? result : "");
-    cJSON_AddBoolToObject(obj, "success", success);
-
-    char *json = cJSON_PrintUnformatted(obj);
-    cJSON_Delete(obj);
-    return json;
 }

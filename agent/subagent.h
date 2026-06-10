@@ -7,13 +7,6 @@
 typedef struct SubAgent SubAgent;
 
 typedef struct {
-    char *task_description;
-    char *result;
-    bool success;
-    char *error;
-} SubAgentTask;
-
-typedef struct {
     char *scenario_name;
     int rounds;
     int tool_calls;
@@ -24,13 +17,22 @@ typedef struct {
 SubAgent *subagent_create(const char *workdir, int context_window);
 void subagent_free(SubAgent *s);
 
-const char *subagent_execute(SubAgent *s, const char *task, SubAgentMetrics *metrics);
+/*
+ * Execute a single bounded task in the subagent's isolated context.
+ *
+ * `id` is the subagent's spawn_id (e.g. "sa-1"); it is used purely as a
+ * session-log marker so the parent can later tell which messages came
+ * from this subagent. The caller is responsible for generating and
+ * managing the id.
+ *
+ * `metrics`, if non-NULL, is filled in with the per-execute counters.
+ *
+ * Returns the subagent's final text reply (heap-allocated, caller frees).
+ * NULL is returned on error.
+ */
+char *subagent_execute(SubAgent *s, const char *task, const char *id,
+                       SubAgentMetrics *metrics);
 
 void subagent_set_memory(SubAgent *s, cJSON *memory);
-
-/* Optional path for an independent debug log under .agent/subagents/. */
-void subagent_set_log_path(SubAgent *s, const char *log_path);
-
-char *subagent_format_result(const char *task, const char *result, bool success);
 
 #endif
