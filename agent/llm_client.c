@@ -31,6 +31,10 @@ void llm_response_free(LLMResponse *r) {
     free(r->tool_calls[i].name);
     cJSON_Delete(r->tool_calls[i].args);
   }
+  /* calloc(0, ...) returns a non-NULL unique pointer when the LLM response
+   * has no tool_calls, so we always free it here rather than gating on
+   * n_tool_calls. */
+  free(r->tool_calls);
   memset(r, 0, sizeof(*r));
 }
 

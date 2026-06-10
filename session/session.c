@@ -23,12 +23,7 @@ struct Session {
     int message_count;
 };
 
-static int ensure_dir(const char *path) {
-    struct stat st;
-    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
-        return 0;
-    return mkdir(path, 0755);
-}
+#define ensure_dir(path) ensure_dir_recursive(path)
 
 /*
  * session_id whitelist: only alnum, '-', '_', '.'. Keeps the user (and an

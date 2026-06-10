@@ -13,22 +13,21 @@ static bool offload_should_apply(Context *ctx) {
   return ctx_budget_usage(ctx) >= g_config.offload_threshold;
 }
 
-static int ensure_dir(const char *path) {
-  struct stat st;
-  if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
-    return 0;
-  return mkdir(path, 0755);
-}
+#define ensure_dir(path) ensure_dir_recursive(path)
 
 /*
- * Per-role length threshold for offload eligibility. Tool outputs frequently
- * contain the bulk of a long turn, so we offload them aggressively. User /
- * assistant messages are kept verbatim more often — we only offload when they
- * are clearly bloating the context (e.g. a large paste) so we do not break the
- * flow of conversation.
+ * Per handbook §2: the offload policy examines tool-role messages located
+ * outside the most recent KEEP_RECENT_MSGS entries. User and assistant
+ * messages are NEVER offloaded — they represent the conversation flow
+ * itself, so the policy leaves them verbatim regardless of length.
+ *
+ * Tool outputs are offloaded aggressively when their body is long enough to
+ * bloat the window. The placeholder retains a short head preview of the
+ * original bytes (so a downstream `read_file` is rarely needed) and
+ * embeds the offload path plus the `read_file` retrieval hint.
  */
 #define OFFLOAD_MIN_TOOL_LEN 50
-#define OFFLOAD_MIN_OTHER_LEN 500
+#define OFFLOAD_HEAD_PREVIEW 200
 
 static int offload_apply(Context *ctx, char *err, size_t err_cap) {
   (void)err;
@@ -59,38 +58,39 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
       continue;
     }
 
+    /* Handbook: only tool-role messages are offloaded. */
+    if (strcmp(role, "tool") != 0) {
+      cJSON_Delete(m);
+      continue;
+    }
+
     const char *content = json_str(m, "content");
     if (!content)
       content = "";
 
-    bool is_tool = (strcmp(role, "tool") == 0);
-
-    if (strstr(content, "load_storage") != NULL ||
-        strstr(content, "read_file") != NULL) {
+    /* Idempotency: a message that has already been offloaded contains
+     * both "read_file" and ".agent/offload/" in its placeholder. */
+    if (strstr(content, "read_file") != NULL &&
+        strstr(content, ".agent/offload/") != NULL) {
       cJSON_Delete(m);
       continue;
     }
 
     int content_len = (int)strlen(content);
-    int threshold = is_tool ? OFFLOAD_MIN_TOOL_LEN : OFFLOAD_MIN_OTHER_LEN;
-    if (content_len < threshold) {
+    if (content_len < OFFLOAD_MIN_TOOL_LEN) {
       cJSON_Delete(m);
       continue;
     }
 
-    /*
-     * C: slim placeholder — path + retrieval hint, no head/tail preview.
-     * With workdir ≈ 60B this lands around 110B instead of the old 220B,
-     * so more tool outputs become eligible for offload.
-     *
-     * A: we build the placeholder first so we can compare lengths before
-     * claiming an offload_id, opening a file, or doing any other side
-     * effect. If the placeholder would not shrink the message, we leave
-     * the message verbatim and never touch the filesystem.
-     */
+    /* Build the placeholder first and compare lengths. If the placeholder
+     * would not shrink the message, leave the message verbatim and never
+     * touch the filesystem. */
+    int head_n = content_len < OFFLOAD_HEAD_PREVIEW ? content_len
+                                                   : OFFLOAD_HEAD_PREVIEW;
     char *placeholder = xasprintf(
-        "offloaded to %s/.agent/offload/%d.txt (use read_file to retrieve)",
-        g_config.workdir, ctx->next_offload_id);
+        "%.*s\n[...truncated; full content at %s/.agent/offload/%d.txt — "
+        "use read_file to retrieve]",
+        head_n, content, g_config.workdir, ctx->next_offload_id);
 
     if ((int)strlen(placeholder) >= content_len) {
       fprintf(stderr,
@@ -115,7 +115,7 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
     fclose(f);
 
     const char *tool_call_id = json_str(m, "tool_call_id");
-    char *saved_tool_call_id = (is_tool && tool_call_id) ? xstrdup(tool_call_id) : NULL;
+    char *saved_tool_call_id = tool_call_id ? xstrdup(tool_call_id) : NULL;
     char *saved_role = xstrdup(role);
 
     cJSON_Delete(m);

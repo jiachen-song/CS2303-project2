@@ -230,17 +230,21 @@ const char *agent_chat(Agent *a, const char *user_input) {
       fprintf(stderr, "agent_chat: llm_chat failed: %s\n", err);
       return NULL;
     }
-
     if(response.n_tool_calls == 0){
       if(!response.content){
         response.content = xstrdup("");
       }
       free(a->last_reply);
       a->last_reply = xstrdup(response.content);
+
       free(response.raw_message);
       free(response.content);
       response.content = NULL;
       response.raw_message = NULL;
+      /* llm_chat may have calloc(0) for tool_calls when the response has
+       * none; llm_response_free handles that via free(NULL-safe) on the
+       * tool_calls field. */
+      llm_response_free(&response);
       ui_idle();
       return a->last_reply;
     }

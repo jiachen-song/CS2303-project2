@@ -14,12 +14,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static int ensure_dir(const char *path) {
-    struct stat st;
-    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
-        return 0;
-    return mkdir(path, 0755);
-}
+#define ensure_dir(path) ensure_dir_recursive(path)
 
 /*
  * Skill name whitelist: alnum, '-', '_' only. Length 1..64. No '.' to

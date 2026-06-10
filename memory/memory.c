@@ -21,12 +21,7 @@ struct MemoryStore {
     cJSON *entries;
 };
 
-static int ensure_dir(const char *path) {
-    struct stat st;
-    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
-        return 0;
-    return mkdir(path, 0755);
-}
+#define ensure_dir(path) ensure_dir_recursive(path)
 
 static char *timestamp_str(void) {
     time_t now = time(NULL);

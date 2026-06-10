@@ -18,4 +18,12 @@ char *xstrdup(const char *s);
 /* Like asprintf but exits on failure. Never returns NULL. */
 char *xasprintf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
+/*
+ * Create `path` (and any missing parent directories) with mode 0755.
+ * Behaves like `mkdir -p`: silently succeeds if the path already exists
+ * as a directory. Returns 0 on success, -1 on failure (e.g. permission,
+ * ENOENT on a non-existent read-only parent, etc.).
+ */
+int ensure_dir_recursive(const char *path);
+
 #endif
