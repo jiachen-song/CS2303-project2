@@ -96,8 +96,8 @@ ToolResult skill_info_exec(cJSON *args) {
     return (ToolResult){.ok = true, .output = output};
 }
 
-void skill_tools_set_store(void *store) {
-    g_skill_store = (SkillStore *)store;
+void skill_tools_set_store(SkillStore *store) {
+    g_skill_store = store;
 }
 
 SkillStore *skill_tools_get_store(void) {

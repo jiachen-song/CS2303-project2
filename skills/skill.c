@@ -3,13 +3,16 @@
 #include "skills/skill.h"
 #include "util.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static int ensure_dir(const char *path) {
     struct stat st;
@@ -18,10 +21,30 @@ static int ensure_dir(const char *path) {
     return mkdir(path, 0755);
 }
 
+/*
+ * Skill name whitelist: alnum, '-', '_' only. Length 1..64. No '.' to
+ * prevent path-traversal payloads like "..". Path is built by
+ * snprintf("%s/%s.skill", skills_dir, name), so the name is the only
+ * attacker-controlled component of the resulting path.
+ */
+static bool is_valid_skill_name(const char *name) {
+    if (!name || !*name)
+        return false;
+    size_t len = strlen(name);
+    if (len > 64)
+        return false;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)name[i];
+        if (!(isalnum(c) || c == '-' || c == '_'))
+            return false;
+    }
+    return true;
+}
+
 static void skill_init(Skill *s, const char *name, const char *description, const char *full_prompt) {
     s->name = xstrdup(name);
-    s->description = xstrdup(description);
-    s->full_prompt = xstrdup(full_prompt);
+    s->description = xstrdup(description ? description : "");
+    s->full_prompt = xstrdup(full_prompt ? full_prompt : "");
     s->filepath = NULL;
 }
 
@@ -33,12 +56,7 @@ Skill *skill_create(const char *name, const char *description, const char *full_
     if (!s)
         return NULL;
 
-    skill_init(s, name, description ? description : "", full_prompt ? full_prompt : "");
-    if (full_prompt) {
-        free(s->full_prompt);
-        s->full_prompt = xstrdup(full_prompt);
-    }
-
+    skill_init(s, name, description, full_prompt);
     return s;
 }
 
@@ -113,9 +131,7 @@ static int skill_add(SkillStore *store, Skill *skill) {
 
     if (store->len >= store->cap) {
         size_t new_cap = store->cap == 0 ? 8 : store->cap * 2;
-        Skill **new_skills = realloc(store->skills, new_cap * sizeof(Skill *));
-        if (!new_skills)
-            return -1;
+        Skill **new_skills = xrealloc(store->skills, new_cap * sizeof(Skill *));
         store->skills = new_skills;
         store->cap = new_cap;
     }
@@ -124,7 +140,20 @@ static int skill_add(SkillStore *store, Skill *skill) {
     return 0;
 }
 
-static int parse_skill_file(const char *filepath, char **out_name, char **out_description, char **out_full_prompt) {
+/*
+ * Parse a .skill file. The on-disk format is JSON:
+ *   { "name": "...", "description": "...", "full_prompt": "..." }
+ *
+ * On success, the caller owns *out_name / *out_description / *out_full_prompt
+ * (each heap-allocated, may be NULL if the field is missing).
+ * Returns 0 on success, -1 on read/parse error.
+ */
+static int parse_skill_file(const char *filepath, char **out_name,
+                            char **out_description, char **out_full_prompt) {
+    *out_name = NULL;
+    *out_description = NULL;
+    *out_full_prompt = NULL;
+
     FILE *f = fopen(filepath, "r");
     if (!f)
         return -1;
@@ -132,54 +161,41 @@ static int parse_skill_file(const char *filepath, char **out_name, char **out_de
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
-
     if (len <= 0) {
         fclose(f);
         return -1;
     }
 
-    char *content = malloc(len + 1);
-    if (!content) {
-        fclose(f);
+    char *content = xmalloc((size_t)len + 1);
+    size_t n = fread(content, 1, (size_t)len, f);
+    content[n] = '\0';
+    bool read_err = ferror(f);
+    fclose(f);
+    if (read_err || n == 0) {
+        free(content);
         return -1;
     }
 
-    fread(content, 1, len, f);
-    content[len] = '\0';
-    fclose(f);
-
-    *out_name = NULL;
-    *out_description = NULL;
-    *out_full_prompt = NULL;
-
-    char *desc_start = strstr(content, "---\n");
-    if (desc_start) {
-        char *desc_end = strstr(desc_start + 4, "---\n");
-        if (desc_end) {
-            size_t desc_len = desc_end - (desc_start + 4);
-            *out_description = malloc(desc_len + 1);
-            if (*out_description) {
-                memcpy(*out_description, desc_start + 4, desc_len);
-                (*out_description)[desc_len] = '\0';
-            }
-
-            char *name_start = content;
-            char *name_end = desc_start;
-            while (name_end > name_start && (name_end[-1] == '\n' || name_end[-1] == '\r' || name_end[-1] == ' ' || name_end[-1] == '\t')) {
-                name_end--;
-            }
-            size_t name_len = name_end - name_start;
-            *out_name = malloc(name_len + 1);
-            if (*out_name) {
-                memcpy(*out_name, name_start, name_len);
-                (*out_name)[name_len] = '\0';
-            }
-
-            *out_full_prompt = xstrdup(desc_end + 4);
-        }
+    cJSON *root = cJSON_Parse(content);
+    free(content);
+    if (!root) {
+        fprintf(stderr, "[skills] WARNING: %s is not valid JSON, skipping\n",
+                filepath);
+        return -1;
     }
 
-    free(content);
+    cJSON *name_node = cJSON_GetObjectItemCaseSensitive(root, "name");
+    cJSON *desc_node = cJSON_GetObjectItemCaseSensitive(root, "description");
+    cJSON *prompt_node = cJSON_GetObjectItemCaseSensitive(root, "full_prompt");
+
+    if (cJSON_IsString(name_node) && name_node->valuestring)
+        *out_name = xstrdup(name_node->valuestring);
+    if (cJSON_IsString(desc_node) && desc_node->valuestring)
+        *out_description = xstrdup(desc_node->valuestring);
+    if (cJSON_IsString(prompt_node) && prompt_node->valuestring)
+        *out_full_prompt = xstrdup(prompt_node->valuestring);
+
+    cJSON_Delete(root);
     return 0;
 }
 
@@ -193,27 +209,71 @@ int skill_load_directory(SkillStore *store, const char *skills_dir) {
 
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type != DT_REG)
+        if (entry->d_name[0] == '.')
             continue;
 
         const char *ext = strrchr(entry->d_name, '.');
         if (!ext || strcmp(ext, ".skill") != 0)
             continue;
 
+        /* d_type is DT_UNKNOWN on some filesystems (reiserfs, FUSE, …);
+         * fall back to stat() in that case. */
+        bool is_reg;
+        if (entry->d_type == DT_UNKNOWN) {
+            char p[PATH_MAX];
+            snprintf(p, sizeof(p), "%s/%s", skills_dir, entry->d_name);
+            struct stat st;
+            if (stat(p, &st) != 0 || !S_ISREG(st.st_mode))
+                continue;
+            is_reg = true;
+        } else {
+            if (entry->d_type != DT_REG)
+                continue;
+            is_reg = true;
+        }
+        (void)is_reg;
+
         char filepath[PATH_MAX];
         snprintf(filepath, sizeof(filepath), "%s/%s", skills_dir, entry->d_name);
 
         char *name = NULL, *description = NULL, *full_prompt = NULL;
-        if (parse_skill_file(filepath, &name, &description, &full_prompt) == 0 && name) {
-            Skill *skill = skill_create(name, description, full_prompt);
-            if (skill) {
-                skill->filepath = xstrdup(filepath);
-                skill_add(store, skill);
-            }
+        if (parse_skill_file(filepath, &name, &description, &full_prompt) != 0) {
+            free(name);
+            free(description);
+            free(full_prompt);
+            continue;
         }
+
+        if (!name || !is_valid_skill_name(name)) {
+            fprintf(stderr, "[skills] WARNING: %s has invalid 'name' field, skipping\n",
+                    filepath);
+            free(name);
+            free(description);
+            free(full_prompt);
+            continue;
+        }
+
+        if (skill_find(store, name)) {
+            fprintf(stderr, "[skills] WARNING: duplicate skill '%s' in %s, skipping\n",
+                    name, filepath);
+            free(name);
+            free(description);
+            free(full_prompt);
+            continue;
+        }
+
+        Skill *skill = skill_create(name, description, full_prompt);
         free(name);
         free(description);
         free(full_prompt);
+        if (!skill)
+            continue;
+
+        skill->filepath = xstrdup(filepath);
+        if (skill_add(store, skill) != 0) {
+            fprintf(stderr, "[skills] WARNING: out of memory adding '%s'\n", filepath);
+            skill_free(skill);
+        }
     }
 
     closedir(dir);
@@ -237,17 +297,53 @@ cJSON *skill_list_all(SkillStore *store) {
 int skill_save(SkillStore *store, Skill *skill) {
     if (!store || !skill || !skill->name)
         return -1;
+    if (!is_valid_skill_name(skill->name))
+        return -1;
 
     char filepath[PATH_MAX];
     snprintf(filepath, sizeof(filepath), "%s/%s.skill", store->skills_dir, skill->name);
 
-    FILE *f = fopen(filepath, "w");
-    if (!f)
+    cJSON *root = cJSON_CreateObject();
+    if (!root)
+        return -1;
+    cJSON_AddStringToObject(root, "name", skill->name);
+    cJSON_AddStringToObject(root, "description", skill->description ? skill->description : "");
+    cJSON_AddStringToObject(root, "full_prompt", skill->full_prompt ? skill->full_prompt : "");
+
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!json)
         return -1;
 
-    fprintf(f, "%s\n---\n%s\n---\n%s\n", skill->name, skill->description, skill->full_prompt);
-    fclose(f);
+    /* Atomic write: temp + rename. */
+    char *tmp = xasprintf("%s.tmp", filepath);
+    FILE *f = fopen(tmp, "w");
+    if (!f) {
+        free(tmp);
+        free(json);
+        return -1;
+    }
+    if (fprintf(f, "%s", json) < 0) {
+        fclose(f);
+        remove(tmp);
+        free(tmp);
+        free(json);
+        return -1;
+    }
+    if (fclose(f) != 0) {
+        remove(tmp);
+        free(tmp);
+        free(json);
+        return -1;
+    }
+    free(json);
 
+    if (rename(tmp, filepath) != 0) {
+        remove(tmp);
+        free(tmp);
+        return -1;
+    }
+    free(tmp);
     return 0;
 }
 
@@ -257,21 +353,18 @@ char *skill_build_intro(SkillStore *store) {
 
     size_t total_len = 0;
     for (size_t i = 0; i < store->len; i++) {
-        total_len += strlen(store->skills[i]->name) + 2;
-        total_len += strlen(store->skills[i]->description) + 2;
+        /* Per skill: "- " (2) + name + ": " (2) + description + "\n" (1) */
+        total_len += 2 + strlen(store->skills[i]->name) + 2 +
+                     strlen(store->skills[i]->description) + 1;
     }
 
-    char *result = malloc(total_len + 1);
-    if (!result)
-        return xstrdup("");
-
+    char *result = xmalloc(total_len + 1);
     result[0] = '\0';
     for (size_t i = 0; i < store->len; i++) {
-        strcat(result, "- ");
-        strcat(result, store->skills[i]->name);
-        strcat(result, ": ");
-        strcat(result, store->skills[i]->description);
-        strcat(result, "\n");
+        /* Use a running offset so we don't strcat (O(n²)). */
+        size_t off = strlen(result);
+        snprintf(result + off, total_len + 1 - off, "- %s: %s\n",
+                 store->skills[i]->name, store->skills[i]->description);
     }
 
     return result;
@@ -280,11 +373,14 @@ char *skill_build_intro(SkillStore *store) {
 int skill_delete(SkillStore *store, const char *name) {
     if (!store || !name)
         return -1;
+    if (!is_valid_skill_name(name))
+        return -1;
 
     char filepath[PATH_MAX];
     snprintf(filepath, sizeof(filepath), "%s/%s.skill", store->skills_dir, name);
 
-    if (remove(filepath) != 0)
+    int file_err = remove(filepath);
+    if (file_err != 0 && errno != ENOENT)
         return -1;
 
     for (size_t i = 0; i < store->len; i++) {
