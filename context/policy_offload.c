@@ -32,7 +32,7 @@ static bool offload_should_apply(Context *ctx) {
 static int offload_apply(Context *ctx, char *err, size_t err_cap) {
   (void)err;
   (void)err_cap;
-
+  //directory
   char agent_dir[PATH_MAX];
   snprintf(agent_dir, sizeof(agent_dir), "%s/.agent", g_config.workdir);
   if (ensure_dir(agent_dir) != 0)
@@ -46,7 +46,7 @@ static int offload_apply(Context *ctx, char *err, size_t err_cap) {
   int cutoff = ctx->history.len - KEEP_RECENT_MSGS;
   if (cutoff <= 0)
     return 0;
-
+  //select
   for (int i = 0; i < cutoff; i++) {
     cJSON *m = cJSON_Parse(ctx->history.items[i]);
     if (!m)
